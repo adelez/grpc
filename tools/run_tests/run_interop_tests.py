@@ -34,20 +34,19 @@ from __future__ import print_function
 
 import argparse
 import atexit
+import dockerjob
 import itertools
+import jobset
 import json
 import multiprocessing
 import os
 import re
+import report_utils
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
-
-import python_utils.dockerjob as dockerjob
-import python_utils.jobset as jobset
-import python_utils.report_utils as report_utils
 
 # Docker doesn't clean up after itself, so we do it on exit.
 atexit.register(lambda: subprocess.call(['stty', 'echo']))
@@ -86,7 +85,7 @@ class CXXLanguage:
     return {}
 
   def server_cmd(self, args):
-    return ['bins/opt/interop_server', '--use_tls=true'] + args
+    return ['bins/opt/interop_server'] + args
 
   def global_env(self):
     return {}
@@ -115,7 +114,7 @@ class CSharpLanguage:
     return {}
 
   def server_cmd(self, args):
-    return ['mono', 'Grpc.IntegrationTesting.Server.exe', '--use_tls=true'] + args
+    return ['mono', 'Grpc.IntegrationTesting.Server.exe'] + args
 
   def global_env(self):
     return {}
@@ -144,7 +143,7 @@ class CSharpCoreCLRLanguage:
     return {}
 
   def server_cmd(self, args):
-    return ['dotnet', 'exec', 'Grpc.IntegrationTesting.Server.dll', '--use_tls=true'] + args
+    return ['dotnet', 'exec', 'Grpc.IntegrationTesting.Server.dll'] + args
 
   def global_env(self):
     return {}
@@ -173,16 +172,16 @@ class JavaLanguage:
     return {}
 
   def server_cmd(self, args):
-    return ['./run-test-server.sh', '--use_tls=true'] + args
+    return ['./run-test-server.sh'] + args
 
   def global_env(self):
     return {}
 
   def unimplemented_test_cases(self):
-    return _SKIP_COMPRESSION
+    return _SKIP_ADVANCED + _SKIP_COMPRESSION
 
   def unimplemented_test_cases_server(self):
-    return _SKIP_COMPRESSION
+    return _SKIP_ADVANCED + _SKIP_COMPRESSION
 
   def __str__(self):
     return 'java'
@@ -203,7 +202,7 @@ class GoLanguage:
     return {}
 
   def server_cmd(self, args):
-    return ['go', 'run', 'server.go', '--use_tls=true'] + args
+    return ['go', 'run', 'server.go'] + args
 
   def global_env(self):
     return {}
@@ -262,8 +261,7 @@ class NodeLanguage:
 
   def server_cmd(self, args):
     return ['tools/run_tests/interop/with_nvm.sh',
-            'node', 'src/node/interop/interop_server.js',
-            '--use_tls=true'] + args
+            'node', 'src/node/interop/interop_server.js'] + args
 
   def global_env(self):
     return {}
@@ -344,7 +342,7 @@ class RubyLanguage:
 
   def server_cmd(self, args):
     return ['tools/run_tests/interop/with_rvm.sh',
-            'ruby', 'src/ruby/pb/test/server.rb', '--use_tls=true'] + args
+            'ruby', 'src/ruby/pb/test/server.rb'] + args
 
   def global_env(self):
     return {}
@@ -384,7 +382,7 @@ class PythonLanguage:
         'src/python/grpcio_tests/setup.py',
         'run_interop',
         '--server',
-        '--args="{}"'.format(' '.join(args) + ' --use_tls=true')
+        '--args="{}"'.format(' '.join(args))
     ]
 
   def global_env(self):
@@ -502,14 +500,15 @@ def _job_kill_handler(job):
 
 
 def cloud_to_prod_jobspec(language, test_case, server_host_name,
-                          server_host_detail, docker_image=None, auth=False):
+                          server_host_detail, insecure=False, docker_image=None, 
+                          auth=False):
   """Creates jobspec for cloud-to-prod interop test"""
   container_name = None
   cmdargs = [
       '--server_host=%s' % server_host_detail[0],
       '--server_host_override=%s' % server_host_detail[1],
       '--server_port=443',
-      '--use_tls=true',
+      '--use_tls=%s' % 'false' if insecure else 'true',
       '--test_case=%s' % test_case]
   environ = dict(language.cloud_to_prod_env(), **language.global_env())
   if auth:
@@ -548,11 +547,11 @@ def cloud_to_prod_jobspec(language, test_case, server_host_name,
 
 
 def cloud_to_cloud_jobspec(language, test_case, server_name, server_host,
-                           server_port, docker_image=None):
+                           server_port, insecure=False, docker_image=None):
   """Creates jobspec for cloud-to-cloud interop test"""
   cmdline = bash_cmdline(language.client_cmd([
       '--server_host_override=foo.test.google.fr',
-      '--use_tls=true',
+      '--use_tls=%s' % 'false' if insecure else 'true',
       '--use_test_ca=true',
       '--test_case=%s' % test_case,
       '--server_host=%s' % server_host,
@@ -584,11 +583,12 @@ def cloud_to_cloud_jobspec(language, test_case, server_name, server_host,
   return test_job
 
 
-def server_jobspec(language, docker_image):
+def server_jobspec(language, docker_image, insecure=False):
   """Create jobspec for running a server"""
   container_name = dockerjob.random_name('interop_server_%s' % language.safename)
   cmdline = bash_cmdline(
-      language.server_cmd(['--port=%s' % _DEFAULT_SERVER_PORT]))
+      language.server_cmd(['--port=%s' % _DEFAULT_SERVER_PORT,
+                           '--use_tls=%s' % 'false' if insecure else 'true']))
   environ = language.global_env()
   docker_cmdline = docker_run_cmdline(cmdline,
                                       image=docker_image,
@@ -731,6 +731,11 @@ argp.add_argument('--http2_interop',
                   action='store_const',
                   const=True,
                   help='Enable HTTP/2 interop tests')
+argp.add_argument('--insecure',
+                  default=False,
+                  action='store_const',
+                  const=True,
+                  help='Whether to use secure channel.')
 
 args = argp.parse_args()
 
@@ -792,7 +797,8 @@ server_addresses={}
 try:
   for s in servers:
     lang = str(s)
-    spec = server_jobspec(_LANGUAGES[lang], docker_images.get(lang))
+    spec = server_jobspec(_LANGUAGES[lang], docker_images.get(lang), 
+                          args.insecure)
     job = dockerjob.DockerJob(spec)
     server_jobs[lang] = job
     server_addresses[lang] = ('localhost', job.mapped_port(_DEFAULT_SERVER_PORT))
@@ -806,7 +812,7 @@ try:
             if not test_case in _SKIP_ADVANCED + _SKIP_COMPRESSION:
               test_job = cloud_to_prod_jobspec(
                   language, test_case, server_host_name,
-                  prod_servers[server_host_name],
+                  prod_servers[server_host_name], args.insecure,
                   docker_image=docker_images.get(str(language)))
               jobs.append(test_job)
 
@@ -814,7 +820,7 @@ try:
         for test_case in _HTTP2_TEST_CASES:
           test_job = cloud_to_prod_jobspec(
               http2Interop, test_case, server_host_name,
-              prod_servers[server_host_name],
+              prod_servers[server_host_name], args.insecure,
               docker_image=docker_images.get(str(http2Interop)))
           jobs.append(test_job)
 
@@ -825,7 +831,7 @@ try:
           if not test_case in language.unimplemented_test_cases():
             test_job = cloud_to_prod_jobspec(
                 language, test_case, server_host_name,
-                prod_servers[server_host_name],
+                prod_servers[server_host_name], args.insecure,
                 docker_image=docker_images.get(str(language)), auth=True)
             jobs.append(test_job)
 
@@ -849,6 +855,7 @@ try:
                                               server_name,
                                               server_host,
                                               server_port,
+                                              args.insecure,
                                               docker_image=docker_images.get(str(language)))
             jobs.append(test_job)
 
@@ -862,6 +869,7 @@ try:
                                           server_name,
                                           server_host,
                                           server_port,
+                                          args.insecure,
                                           docker_image=docker_images.get(str(http2Interop)))
         jobs.append(test_job)
 
