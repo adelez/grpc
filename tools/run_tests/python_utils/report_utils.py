@@ -85,13 +85,15 @@ def render_interop_html_report(
   resultset, num_failures, cloud_to_prod, prod_servers, http2_interop):
   """Generate HTML report for interop tests."""
   template_file = 'tools/run_tests/interop/interop_html_report.template'
+  print('template_file: %s' % template_file)
   try:
     mytemplate = Template(filename=template_file, format_exceptions=True)
-  except NameError:
+  except NameError as e1:
     print('Mako template is not installed. Skipping HTML report generation.')
+    print str(e1)
     return
   except IOError as e:
-    print('Failed to find the template %s: %s' % (template_file, e))
+    print('Line 96: Failed to find the template %s: %s' % (template_file, e))
     return
 
   sorted_test_cases = sorted(test_cases)

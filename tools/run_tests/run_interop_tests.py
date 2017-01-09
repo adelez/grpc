@@ -906,6 +906,6 @@ finally:
 
   dockerjob.finish_jobs([j for j in server_jobs.itervalues()])
 
-  for image in docker_images.itervalues():
-    print('Removing docker image %s' % image)
-    dockerjob.remove_image(image)
+  #for image in docker_images.itervalues():
+  #  print('Removing docker image %s' % image)
+  #  dockerjob.remove_image(image)
