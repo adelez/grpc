@@ -24,14 +24,7 @@ def get_github_repo(lang):
 
 # Dictionary of runtimes per language
 LANG_RUNTIME_MATRIX = {
-    'cxx': ['cxx'],             # This is actually debian8.
-    'go': ['go1.7', 'go1.8'],
-    'java': ['java_oracle8'],
-    #'python': ['python'],  # All python versions fail the tests due to timeout.
-    'node': ['node'],
-    'ruby': ['ruby'],
-    'php': ['php', 'php7'],
-    'csharp': ['csharp', 'csharpcoreclr'],
+    'python': ['python'],  # All python versions fail the tests due to timeout.
 }
 
 # Dictionary of releases per language.  For each language, we need to provide
@@ -64,14 +57,14 @@ LANG_RELEASE_MATRIX = {
         'v1.6.1',
         'v1.7.0',
     ],
-    #'python': [
+    'python': [
         #'v1.0.x',  #Fail to run the test. #13230.
     #    'v1.1.4',
     #    'v1.2.5',
     #    'v1.3.9',
     #    'v1.4.2',
-    #    'v1.6.6',
-    #],
+        'v1.6.6',
+    ],
     'node': [
         'v1.0.1',
         'v1.1.4',
