@@ -1,0 +1,3 @@
+#!/bin/bash
+echo "Testing ${docker_image:=grpc_interop_python:2ee5f860-a20d-409a-9735-430abedcc8f8}"
+docker run -i --rm=true -e PYTHONPATH=/var/local/git/grpc/src/python/gens -e LD_LIBRARY_PATH=/var/local/git/grpc/libs/opt -e GRPC_VERBOSITY=DEBUG -e GRPC_TRACE=all -w /var/local/git/grpc --net=host $docker_image bash -c "py27/bin/python src/python/grpcio_tests/setup.py run_interop --client --args="--server_host=216.239.32.254 --server_host_override=grpc-test.sandbox.googleapis.com --server_port=443 --use_tls=true --test_case=empty_unary""
